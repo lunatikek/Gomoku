@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>五子棋</title>
+  <link rel="stylesheet" href="./Gomoku.css">
+</head>
+<body>
+  <div class="bg-orb orb-1"></div>
+  <div class="bg-orb orb-2"></div>
+  <div class="bg-orb orb-3"></div>
+
+  <div class="game-wrapper">
+
+    <header class="game-header">
+      <p class="eyebrow">人机对战</p>
+      <h1 id="title">五子棋</h1>
+      <p id="subtitle" class="subtitle">黑棋先行，祝你好运</p>
+    </header>
+
+    <div class="board-card">
+      <canvas id="Gomoku"></canvas>
+    </div>
+
+    <div class="controls">
+      <button id="restart" class="btn btn-ghost">
+        <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 10a7 7 0 1 0 1.5-4.3"/><path d="M3 5.5V10h4.5"/>
+        </svg>
+        重新开始
+      </button>
+      <button id="back" class="btn btn-primary" disabled>
+        <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13 5L8 10l5 5"/>
+        </svg>
+        悔棋
+      </button>
+      <button id="cancel" class="btn btn-primary" disabled>
+        <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 5l5 5-5 5"/>
+        </svg>
+        取消悔棋
+      </button>
+    </div>
+
+    <!-- 名言区 -->
+    <div class="quote-area">
+      <div class="quote-card">
+        <div class="quote-body">
+          <span class="quote-mark">&ldquo;</span>
+          <div class="quote-content">
+            <p id="quote-text" class="quote-text"></p>
+            <p id="quote-source" class="quote-source"></p>
+          </div>
+        </div>
+        <button id="quote-next" class="quote-btn" title="换一句">
+          <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 3v5h5"/><path d="M5 8A7 7 0 1 1 4 14"/>
+          </svg>
+          换一句
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="./Gomoku.js"></script>
+</body>
+</html>
