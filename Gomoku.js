@@ -28,8 +28,11 @@ class Gomoku {
     this.canCancel       = false;
     this._cancelSnapshot = null;
 
-    this.hoverPos   = null;
-    this.aiThinking = false;
+    this.hoverPos      = null;
+    this.aiThinking    = false;
+    this._aiTimer           = null;  // AI 思考 setTimeout 的計時器 ID
+    this._winLineTimer      = null;  // 用於在 init() 中取消待執行的勝線繪製
+    this._integrityViolated = false; // 完整性校验失败后永久锁定，不可被 init() 清除
 
     this._ro = new ResizeObserver(() => this._onResize());
     this._ro.observe(canvas.parentElement);
@@ -37,6 +40,62 @@ class Gomoku {
     this._resize();
     this.init();
     this._bindEvents();
+    this._verifyIntegrity(); // 异步校验 AI 核心算法完整性
+  }
+
+  /* ── AI 算法完整性校验（防运行时猴子补丁） ── */
+
+  // 六个核心 AI 方法 toString() 拼接后的 SHA-256 哈希
+  // 若有人在运行时替换任意 AI 方法，校验将失败并锁定棋盘
+  static get _AI_INTEGRITY_HASH() {
+    return 'sha256-gE2zpmLAbt3Et6XS8wiJJwTz0kg/ODHLne8OufR6D6w=';
+  }
+
+  async _verifyIntegrity() {
+    if (!window.crypto?.subtle) return; // 非 HTTPS / 不支持 SubtleCrypto 时跳过
+    try {
+      const methods  = ['_aiChoose','_minimax','_evalBoard','_patternScore','_getCandidates','_rankCandidates'];
+      const combined = methods.map(m => this[m].toString()).join('');
+      const buf      = new TextEncoder().encode(combined);
+      const hashBuf  = await crypto.subtle.digest('SHA-256', buf);
+      // ArrayBuffer → base64（避免大数组 spread 溢出栈）
+      const bytes = new Uint8Array(hashBuf);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      const b64 = btoa(bin);
+      if ('sha256-' + b64 !== Gomoku._AI_INTEGRITY_HASH) {
+        this._integrityFailed();
+      }
+    } catch (e) {
+      // SubtleCrypto 出错时静默降级，不中断游戏
+      console.warn('[Gomoku] integrity check error:', e);
+    }
+  }
+
+  _integrityFailed() {
+    this._integrityViolated = true; // 永久锁定，init() 无法解除
+    this.over       = true;
+    this.aiThinking = false;
+    this.canBack    = false; // 確保悔棋 / 取消按鈕立即禁用
+    this.canCancel  = false;
+    this.titleEl.textContent = '完整性校验失败';
+    this.titleEl.className   = 'lose';
+    this.subEl.textContent   = 'AI 算法已被篡改，请刷新或重新部署';
+    // 在棋盘上叠加红色警告遮罩
+    const W   = parseFloat(this.canvas.style.width);
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.setTransform(this.DPR, 0, 0, this.DPR, 0, 0); // 确保使用正确的逻辑坐标系
+    ctx.fillStyle = 'rgba(255, 59, 48, 0.10)';
+    ctx.fillRect(0, 0, W, W);
+    const fs = Math.max(14, Math.round(W * 0.058));
+    ctx.font         = `600 ${fs}px -apple-system, "SF Pro Text", sans-serif`;
+    ctx.fillStyle    = 'rgba(255, 59, 48, 0.82)';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⚠  AI 算法完整性校验失败', W / 2, W / 2);
+    ctx.restore();
+    this._updateBtns();
   }
 
   /* ── HiDPI 自适应 ── */
@@ -59,11 +118,19 @@ class Gomoku {
     this.ctx.setTransform(this.DPR, 0, 0, this.DPR, 0, 0);
   }
 
-  _onResize() { this._resize(); this._redraw(); }
+  _onResize() {
+    this._resize();
+    this._redraw();
+    if (this._integrityViolated) this._integrityFailed();
+  }
 
   /* ── 初始化 ── */
 
   init() {
+    if (this._integrityViolated) return; // 校验失败后禁止重置游戏
+    // 取消上一局遊戲可能正在計時的勝線繪製，避免畫在新棋盤上
+    if (this._winLineTimer !== null) { clearTimeout(this._winLineTimer); this._winLineTimer = null; }
+    if (this._aiTimer      !== null) { clearTimeout(this._aiTimer);      this._aiTimer      = null; }
     this.over       = false;
     this.player     = true;
     this.canBack    = false;
@@ -290,6 +357,8 @@ class Gomoku {
     if (this.chessBoard[i][j] !== 0) return;
 
     this.hoverPos = null;
+    // 快照必须在落子之前捕获，确保 back()/cancel() 的状态还原正确
+    const preSnap = { pSnap: [...this.playerWin], aSnap: [...this.AIWin] };
     this._place(i, j, 1);
     this._redraw();
 
@@ -304,19 +373,20 @@ class Gomoku {
     this.aiThinking = true;
     this.subEl.textContent = 'AI 思考中…';
     this._updateBtns();
-    setTimeout(() => this._aiRound(i, j), 320);
+    this._aiTimer = setTimeout(() => { this._aiTimer = null; this._aiRound(i, j, preSnap); }, 320);
   }
 
   /* ── AI 回合 ── */
 
-  _aiRound(pi, pj) {
+  _aiRound(pi, pj, preSnap) {
     if (this.over) return;
     const { i, j } = this._aiChoose();
 
+    // 保存落子前快照（玩家和 AI 均未落子的干净状态）
     this.history.push({
       pi, pj, ai: i, aj: j,
-      pSnap: [...this.playerWin],
-      aSnap: [...this.AIWin],
+      pSnap: preSnap.pSnap,
+      aSnap: preSnap.aSnap,
     });
 
     this._place(i, j, 2);
@@ -509,19 +579,21 @@ class Gomoku {
   _full() { return this.chessBoard.every(r => r.every(v => v !== 0)); }
 
   _over(msg, cls, winIdx) {
-    this.over = true;
+    this.over      = true;
     this.aiThinking = false;
+    this.canBack   = false; // 遊戲結束後禁止悔棋，避免 back() 在無對應 history entry 時破壞狀態
+    this.canCancel = false;
     this.titleEl.textContent = msg;
     this.titleEl.className   = cls;
     this.subEl.textContent   = cls === 'draw' ? '势均力敌，平局收场' : '点击"重新开始"再来一局';
-    if (winIdx !== -1) setTimeout(() => this._drawWinLine(winIdx), 200);
+    if (winIdx !== -1) this._winLineTimer = setTimeout(() => { this._winLineTimer = null; this._drawWinLine(winIdx); }, 200);
     this._updateBtns();
   }
 
   /* ── 悔棋 / 取消 ── */
 
   back() {
-    if (!this.canBack || !this.history.length || this.aiThinking) return;
+    if (this._integrityViolated || !this.canBack || !this.history.length || this.aiThinking) return;
     const s = this.history.pop();
     this.playerWin = [...s.pSnap];
     this.AIWin     = [...s.aSnap];
@@ -540,7 +612,7 @@ class Gomoku {
   }
 
   cancel() {
-    if (!this.canCancel || !this._cancelSnapshot || this.aiThinking) return;
+    if (this._integrityViolated || !this.canCancel || !this._cancelSnapshot || this.aiThinking) return;
     const s = this._cancelSnapshot;
     this.history.push(s);
     this.playerWin = [...s.pSnap];
@@ -568,7 +640,6 @@ class Gomoku {
   /* ── 按钮状态 ── */
 
   _updateBtns() {
-    const s = id => { const el=document.getElementById(id); if(el) el.disabled=arguments[1]; };
     const bd = !this.canBack   || this.aiThinking || !this.history.length;
     const cd = !this.canCancel || this.aiThinking;
     document.getElementById('back').disabled   = bd;
