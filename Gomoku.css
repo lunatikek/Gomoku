@@ -244,6 +244,29 @@ html, body {
   box-shadow: none !important;
 }
 
+/* ── 桌面端优化 (≥769px) ── */
+@media (min-width: 769px) {
+  .game-wrapper {
+    padding: 60px 40px 72px;
+  }
+  /* 明确宽度让 JS _resize() 能正确读到父宽，解除循环依赖 */
+  .board-card {
+    width: min(720px, calc(100vw - 80px));
+  }
+  .game-header {
+    margin-bottom: 36px;
+  }
+  .controls {
+    margin-top: 28px;
+    gap: 12px;
+    max-width: min(720px, calc(100vw - 80px));
+  }
+  .quote-area {
+    margin-top: 32px;
+    max-width: min(720px, calc(100vw - 80px));
+  }
+}
+
 /* ── 移动端 ── */
 @media (max-width: 480px) {
   .game-wrapper { padding: 28px 12px 36px; }

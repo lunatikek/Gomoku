@@ -104,7 +104,7 @@ class Gomoku {
     const wrap = this.canvas.parentElement;
     // 减去卡片内边距
     const available = (wrap.clientWidth || 520) - 32;
-    const logicSize = Math.max(Math.min(available, 500), 260);
+    const logicSize = Math.max(Math.min(available, 720), 260);
 
     this.RATE    = Math.floor((logicSize - 32) / (this.LINES - 1));
     this.PADDING = Math.round((logicSize - this.RATE * (this.LINES - 1)) / 2);
