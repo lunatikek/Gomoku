@@ -1,5 +1,9 @@
 'use strict';
 
+// 模組頂層常數：AI 核心方法 toString() 拼接的 SHA-256 哈希
+// 使用 const 而非 static getter，防止攻擊者透過 Object.defineProperty 覆蓋
+const _GOMOKU_AI_HASH = 'sha256-gE2zpmLAbt3Et6XS8wiJJwTz0kg/ODHLne8OufR6D6w=';
+
 class Gomoku {
   constructor(canvas) {
     this.canvas    = canvas;
@@ -34,21 +38,24 @@ class Gomoku {
     this._winLineTimer      = null;  // 用於在 init() 中取消待執行的勝線繪製
     this._integrityViolated = false; // 完整性校验失败后永久锁定，不可被 init() 清除
 
-    this._ro = new ResizeObserver(() => this._onResize());
-    this._ro.observe(canvas.parentElement);
+    // 缓存按钮引用，避免 _updateBtns 每次重新查询 DOM
+    this._backBtn   = document.getElementById('back');
+    this._cancelBtn = document.getElementById('cancel');
+
+    this._resizeTimer = null; // ResizeObserver 防抖计时器，避免拖拽窗口期间频繁重绘
+
+    this._ro = new ResizeObserver(() => {
+      clearTimeout(this._resizeTimer);
+      this._resizeTimer = setTimeout(() => this._onResize(), 150);
+    });
 
     this._resize();
     this.init();
     this._bindEvents();
     this._verifyIntegrity(); // 异步校验 AI 核心算法完整性
-  }
-
-  /* ── AI 算法完整性校验（防运行时猴子补丁） ── */
-
-  // 六个核心 AI 方法 toString() 拼接后的 SHA-256 哈希
-  // 若有人在运行时替换任意 AI 方法，校验将失败并锁定棋盘
-  static get _AI_INTEGRITY_HASH() {
-    return 'sha256-gE2zpmLAbt3Et6XS8wiJJwTz0kg/ODHLne8OufR6D6w=';
+    // 確保棋盤完全初始化後才開始監聽尺寸變化
+    // 若提前 observe，部分瀏覽器可能在 init() 前觸發回調，導致 chessBoard 未初始化時 crash
+    this._ro.observe(canvas.parentElement);
   }
 
   async _verifyIntegrity() {
@@ -63,7 +70,7 @@ class Gomoku {
       let bin = '';
       for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
       const b64 = btoa(bin);
-      if ('sha256-' + b64 !== Gomoku._AI_INTEGRITY_HASH) {
+      if ('sha256-' + b64 !== _GOMOKU_AI_HASH) {
         this._integrityFailed();
       }
     } catch (e) {
@@ -102,8 +109,10 @@ class Gomoku {
 
   _resize() {
     const wrap = this.canvas.parentElement;
-    // 减去卡片内边距
-    const available = (wrap.clientWidth || 520) - 32;
+    // 讀實際 CSS padding，避免移動端 padding 被覆寫後仍用舊值計算
+    const style = getComputedStyle(wrap);
+    const padX2 = (parseFloat(style.paddingLeft) || 16) + (parseFloat(style.paddingRight) || 16);
+    const available = (wrap.clientWidth || 520) - padX2;
     const logicSize = Math.max(Math.min(available, 720), 260);
 
     this.RATE    = Math.floor((logicSize - 32) / (this.LINES - 1));
@@ -214,25 +223,18 @@ class Gomoku {
     ctx.fillStyle = hl;
     ctx.fillRect(0, 0, W, W);
 
-    // 网格 — 1 物理像素，crisp
+    // 网格 — 1 物理像素，crisp；横竖各一条路径批量绘制减少 draw call
     const snap = 0.5 / this.DPR;
     ctx.save();
     ctx.strokeStyle = 'rgba(120, 80, 0, 0.28)';
     ctx.lineWidth   = 1 / this.DPR;
-
+    ctx.beginPath();
     for (let i = 0; i < L; i++) {
       const a = Math.round(P + i * R) + snap;
-      // 横
-      ctx.beginPath();
-      ctx.moveTo(P,           a);
-      ctx.lineTo(P+(L-1)*R,   a);
-      ctx.stroke();
-      // 竖
-      ctx.beginPath();
-      ctx.moveTo(a, P);
-      ctx.lineTo(a, P+(L-1)*R);
-      ctx.stroke();
+      ctx.moveTo(P,         a); ctx.lineTo(P+(L-1)*R, a); // 横
+      ctx.moveTo(a,         P); ctx.lineTo(a, P+(L-1)*R); // 竖
     }
+    ctx.stroke();
 
     // 外框加粗
     ctx.strokeStyle = 'rgba(120, 80, 0, 0.5)';
@@ -352,11 +354,11 @@ class Gomoku {
   playerRound(cx, cy) {
     if (this.over || !this.player || this.aiThinking) return;
     const pos = this._getPos(cx, cy);
+    // 无论落子是否成功都清除 ghost piece，防止残影
+    if (this.hoverPos) { this.hoverPos = null; this._redraw(); }
     if (!pos) return;
     const { i, j } = pos;
     if (this.chessBoard[i][j] !== 0) return;
-
-    this.hoverPos = null;
     // 快照必须在落子之前捕获，确保 back()/cancel() 的状态还原正确
     const preSnap = { pSnap: [...this.playerWin], aSnap: [...this.AIWin] };
     this._place(i, j, 1);
@@ -615,12 +617,12 @@ class Gomoku {
     if (this._integrityViolated || !this.canCancel || !this._cancelSnapshot || this.aiThinking) return;
     const s = this._cancelSnapshot;
     this.history.push(s);
+    // 恢复快照（快照是本轮玩家落子前的干净状态）
     this.playerWin = [...s.pSnap];
     this.AIWin     = [...s.aSnap];
-    this.chessBoard[s.pi][s.pj] = 1;
-    this.chessBoard[s.ai][s.aj] = 2;
-    this.wins[s.pi][s.pj].forEach(k => { this.playerWin[k]++; if(this.AIWin[k]<6) this.AIWin[k]=6; });
-    this.wins[s.ai][s.aj].forEach(k => { this.AIWin[k]++;     if(this.playerWin[k]<6) this.playerWin[k]=6; });
+    // 通过 _place() 重放本轮双方落子，与正常游戏流程保持一致，避免重复维护计数逻辑
+    this._place(s.pi, s.pj, 1);
+    this._place(s.ai, s.aj, 2);
     this.canCancel = false;
     this._cancelSnapshot = null;
     this.over    = false;
@@ -642,30 +644,76 @@ class Gomoku {
   _updateBtns() {
     const bd = !this.canBack   || this.aiThinking || !this.history.length;
     const cd = !this.canCancel || this.aiThinking;
-    document.getElementById('back').disabled   = bd;
-    document.getElementById('cancel').disabled = cd;
+    this._backBtn.disabled   = bd;
+    this._cancelBtn.disabled = cd;
   }
 
   /* ── 事件绑定 ── */
 
   _bindEvents() {
     const cv = this.canvas;
+
+    // ── 鼠标事件（桌面端）──
     cv.addEventListener('click',      e => this.playerRound(e.clientX, e.clientY));
     cv.addEventListener('mousemove',  e => this._onMove(e));
-    cv.addEventListener('mouseleave', () => { if(this.hoverPos){this.hoverPos=null;this._redraw();} });
+    cv.addEventListener('mouseleave', () => { if (this.hoverPos) { this.hoverPos = null; this._redraw(); } });
+
+    // ── 触摸事件（移动端）──
+    // touchstart：显示落子预览（ghost piece），记录起始位置
     cv.addEventListener('touchstart', e => {
       e.preventDefault();
+      if (this.over || !this.player || this.aiThinking) return;
+      if (!e.changedTouches.length) return;
+      const t = e.changedTouches[0];
+      const pos = this._getPos(t.clientX, t.clientY);
+      if (pos && this.chessBoard[pos.i][pos.j] === 0) {
+        if (!this.hoverPos || this.hoverPos.i !== pos.i || this.hoverPos.j !== pos.j) {
+          this.hoverPos = pos;
+          this._redraw();
+        }
+      }
+    }, { passive: false });
+
+    // touchmove：手指滑动时跟随更新预览位置，方便精确定位
+    cv.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (this.over || !this.player || this.aiThinking) return;
+      if (!e.changedTouches.length) return;
+      const t = e.changedTouches[0];
+      const pos = this._getPos(t.clientX, t.clientY);
+      if (pos && this.chessBoard[pos.i][pos.j] === 0) {
+        if (!this.hoverPos || this.hoverPos.i !== pos.i || this.hoverPos.j !== pos.j) {
+          this.hoverPos = pos;
+          this._redraw();
+        }
+      } else if (this.hoverPos) {
+        this.hoverPos = null;
+        this._redraw();
+      }
+    }, { passive: false });
+
+    // touchend：手指抬起时提交落子（使用 changedTouches 的最终坐标）
+    cv.addEventListener('touchend', e => {
+      e.preventDefault();
+      if (!e.changedTouches.length) return;
       const t = e.changedTouches[0];
       this.playerRound(t.clientX, t.clientY);
     }, { passive: false });
 
+    // touchcancel：系统打断触摸（来电、弹窗等），清除预览
+    cv.addEventListener('touchcancel', () => {
+      if (this.hoverPos) { this.hoverPos = null; this._redraw(); }
+    });
+
     document.getElementById('restart').addEventListener('click', () => this.init());
-    document.getElementById('back').addEventListener('click',    () => this.back());
-    document.getElementById('cancel').addEventListener('click',  () => this.cancel());
+    this._backBtn.addEventListener('click',   () => this.back());
+    this._cancelBtn.addEventListener('click', () => this.cancel());
   }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // 凍結 prototype，阻止攻擊者透過 Gomoku.prototype.xxx = ... 覆蓋任何方法
+  Object.freeze(Gomoku.prototype);
   new Gomoku(document.getElementById('Gomoku'));
 });
 
@@ -827,4 +875,13 @@ document.addEventListener('DOMContentLoaded', function () {
   // 初始化：先写入文字，再加 visible（instant 模式）
   showQuote(pickRandom(), true);
   scheduleNext();
+
+  // 页面隐藏时暂停轮播，避免后台定时器唤醒
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) {
+      clearInterval(timer);
+    } else {
+      scheduleNext();
+    }
+  });
 });

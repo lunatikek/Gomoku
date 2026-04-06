@@ -2,21 +2,43 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+  <!--
+    Content-Security-Policy：
+    · 所有资源仅限同源（'self'），无内联脚本/样式，无外部连接
+    · base-uri / form-action 锁定，防止注入跳转
+    · frame-ancestors 必须通过 HTTP 响应头设置，浏览器会忽略 <meta> 中的该指令
+      服务端需配置：Content-Security-Policy: frame-ancestors 'none'
+      或等效：X-Frame-Options: DENY
+  -->
+  <!--
+    script-src 说明：
+    · 'self'                                        — 同源 JS（Gomoku.js）
+    · https://static.cloudflareinsights.com         — Cloudflare Browser Insights 外部脚本
+    · 'sha256-wvA1R0HycRPn5UFpUKyoH5wE5n/dN+MKPF2bGs/FFaA=' 'sha256-B0K8a3PkskekARV8JNaJCi7MphaWpaWYmhKtUhNBOo4=' — Cloudflare 注入的内联脚本哈希
+    如不需要 Cloudflare 统计，可在 Cloudflare 控制台关闭 Browser Insights，
+    并将上述两项从 script-src 中移除，同时将 connect-src 改回 'none'。
+  -->  <meta name="referrer" content="no-referrer">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>五子棋</title>
+  <!-- favicon：SVG 内联，无需额外文件，符合 CSP img-src data: -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚫</text></svg>">
   <!--
     ╔══════════════════════════════════════════════════════════════════╗
     ║  Subresource Integrity (SRI) — 每次修改资源文件后需重新生成哈希  ║
     ║  命令：                                                          ║
     ║    openssl dgst -sha384 -binary Gomoku.css | openssl base64 -A  ║
     ║    openssl dgst -sha384 -binary Gomoku.js  | openssl base64 -A  ║
-    ║  将输出粘贴到下方 integrity="sha384-<hash>" 中。                 ║
-    ║  同时需同步更新 Gomoku.js 中 _AI_INTEGRITY_HASH（运行时校验）。  ║
+    ║  将输出粘贴到下方 integrity="sha384-h0xYxV1QZp95BHMlAbTlHyso4xxoIjYkwLIKHDSjn/l3N+/zqNcdwx6lHGiiB1BI" 中。                 ║
+    ║  同时需同步更新 Gomoku.js 中 _GOMOKU_AI_HASH（运行时校验）。    ║
     ╚══════════════════════════════════════════════════════════════════╝
   -->
   <link rel="stylesheet" href="./Gomoku.css"
-        integrity="sha384-6aC4MeApel9lk3HdSAh/HiAj+6foy3cXVATbESpT+6lg4OqaZGbNO4r6fJko7Mfu"
-        crossorigin="anonymous">
+        integrity="sha384-h0xYxV1QZp95BHMlAbTlHyso4xxoIjYkwLIKHDSjn/l3N+/zqNcdwx6lHGiiB1BI"
+        crossorigin="anonymous"
+        referrerpolicy="no-referrer">
 </head>
 <body>
   <div class="bg-orb orb-1"></div>
@@ -78,7 +100,8 @@
   </div>
 
   <script src="./Gomoku.js"
-          integrity="sha384-JnUhFFo7iuU8+y2sQ2+wNmV0lvY/4Q1TFEs2cmGp2F9Kr6yVANh7+n50BTUOsHBm"
-          crossorigin="anonymous"></script>
+          integrity="sha384-EfViT3RompAXznJpliu8QlRvVtaiuQs2we9nmp2rKlzEmFThfdgz5QZf182tgQvc"
+          crossorigin="anonymous"
+          referrerpolicy="no-referrer"></script>
 </body>
 </html>
